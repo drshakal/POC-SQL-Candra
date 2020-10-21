@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd        http://camel.apache.org/schema/spring       https://camel.apache.org/schema/spring/camel-spring.xsd">
+    <bean class="org.mycompany.processors.s2dProcessor" id="s2dProcessor"/>
+    <bean class="org.mycompany.processors.validationProcessor" id="validationProcessor"/>
+    <bean class="org.apache.camel.component.jpa.JpaComponent" id="jpa">
+        <property name="entityManagerFactory" ref="entityManagerFactory"/>
+        <property name="transactionManager" ref="jpaTxManager"/>
+    </bean>
+    <bean class="org.springframework.orm.jpa.JpaTransactionManager" id="jpaTxManager">
+        <property name="entityManagerFactory" ref="entityManagerFactory"/>
+    </bean>
+    <bean
+        class="org.springframework.orm.jpa.LocalEntityManagerFactoryBean" id="entityManagerFactory">
+        <property name="persistenceUnitName" value="persistenceUnit"/>
+    </bean>
+    <bean
+        class="org.springframework.jdbc.datasource.DriverManagerDataSource" id="mysqltestDataSource">
+        <property name="driverClassName" value="com.mysql.jdbc.Driver"/>
+        <property name="url" value="jdbc:mysql://localhost:3306/training"/>
+        <property name="username" value="root"/>
+        <property name="password" value="rootpassword"/>
+    </bean>
+    
+    
+    <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+        <dataFormats>
+            <bindy classType="org.mycompany.models.SourceData"
+                id="sorceDataformat" type="Csv"/>
+            <bindy classType="org.mycompany.models.DestinationData"
+                id="destinationDataFormat" type="Csv"/>
+        </dataFormats>
+        <route id="simple-route">
+            <from id="_from1" uri="file:src/main/Data?fileName=source_data_10_2.csv"/>
+            <unmarshal id="_unmarshaller" ref="sorceDataformat"/>
+            <log id="_log1" message="::::source-format::::**${headers}****************************************${body}"/>
+            <process id="_process1" ref="s2dProcessor"/>
+            <log id="_log2" message="::::Destination-format::::**${headers}****************************************${body}"/>
+            <to id="_to1" uri="direct:splitUsingBody"/>
+        </route>
+        <route id="_route1">
+            <from id="_from2" uri="direct:splitUsingBody"/>
+            <split id="_split2">
+                <simple>${body}</simple>
+                <to id="_to2" uri="direct:validater"/>
+            </split>
+        </route>
+        <route id="validator_route">
+            <from id="_from3" uri="direct:validater"/>
+            <log id="_log3" message="::::Before-validation::::******************************************${body}"/>
+            <process id="_process2" ref="validationProcessor"/>
+            <log id="_log4" message="::::After-validations**${header.isValidEntry}****************************************${body}"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${header.isValidEntry} == 'true'</simple>
+                    <to id="_to3" uri="direct:valid"/>
+                </when>
+                <when id="_when2">
+                    <simple>${header.isValidEntry} == 'false'</simple>
+                    <to id="_to4" uri="direct:invalid"/>
+                </when>
+                <otherwise id="_otherwise1">
+                    <to id="_to5" uri="direct:error"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="valid_route">
+            <from id="_from4" uri="direct:valid"/>
+            <!-- <log id="_log5" message="::::valid-one::::**${headers}****************************************${body}"/> -->
+            <to id="_to6" uri="jpa:org.mycompany.models.DestinationData"/>
+        </route>
+        <route id="invalid_route">
+            <from id="_from5" uri="direct:invalid"/>
+            <marshal id="marshal" ref="destinationDataFormat"/>
+           <!--  <log id="_log7" message="::::invalid-one::::**${headers}****************************************${body}"/> -->
+            <to id="_from" uri="file:src/main/Data/output?fileName=output.csv;fileExist=Append"/>
+        </route>
+    </camelContext>
+</beans>
